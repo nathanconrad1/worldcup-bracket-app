@@ -51,9 +51,9 @@ export default async function Home() {
               </div>
             </div>
 
-            {/* Auth card */}
+            {/* Auth card — shows first on mobile, returns to the right column on desktop */}
             <div
-              className="fade-up relative border border-edge bg-surface p-8"
+              className="fade-up relative order-first border border-edge bg-surface p-8 lg:order-none"
               style={{ animationDelay: "0.2s" }}
             >
               <div className="absolute -left-px -top-px h-12 w-12 border-l-2 border-t-2 border-pitch" />
