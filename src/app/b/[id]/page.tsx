@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/Header";
-import { GROUPS, MATCHES, teamByCode } from "@/lib/tournament";
+import { GROUPS, MATCHES, FINAL_MATCH_ID, teamByCode } from "@/lib/tournament";
 import {
   ROUND_LABEL,
   resolveSlot,
@@ -33,7 +33,7 @@ export default async function PublicBracketPage({
     matchWinners: {},
   };
   const profile = (bracket as unknown as { profiles: { username: string } }).profiles;
-  const champion = picks.matchWinners["F"] ? teamByCode(picks.matchWinners["F"]) : null;
+  const champion = picks.matchWinners[FINAL_MATCH_ID] ? teamByCode(picks.matchWinners[FINAL_MATCH_ID]) : null;
 
   const {
     data: { user },

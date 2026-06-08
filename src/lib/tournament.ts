@@ -132,74 +132,89 @@ export function teamByCode(code: string): Team | undefined {
 }
 
 // =============================================================================
-// Knockout bracket structure
+// Knockout bracket structure — official 2026 layout (FIFA fixtures 73–104)
 // =============================================================================
-// 32 teams advance: 12 group winners + 12 runners-up + 8 best 3rd-placed teams.
-// We use a simplified, sane pairing structure that avoids same-group rematches
-// in the Round of 32 and gives a clean visual bracket. Slot positions reference
-// group standings: "1A" = winner of A, "2A" = runner-up of A, "3rd-1" = first
-// of the 8 user-selected third-place teams (in order picked).
+// 32 teams advance: 12 group winners + 12 runners-up + 8 best third-placed teams.
+// Pairings follow the official bracket: a group winner is always drawn against a
+// runner-up or a third-placed team — never another winner — and two teams from
+// the same group cannot meet before the quarterfinals.
+//
+// The eight third-placed slots are conditional: which group's third-placed team
+// lands in each slot depends on which eight groups qualify a third-placed team.
+// That is governed by FIFA's official 495-combination allocation table, encoded
+// in thirdPlaceAllocation.ts and resolved in lib/types.ts → resolveSlot().
 
 export type KnockoutSlot =
   | { kind: "winner"; group: string }      // 1A, 1B, ...
   | { kind: "runnerup"; group: string }    // 2A, 2B, ...
-  | { kind: "third"; index: number };      // 3rd-1 ... 3rd-8
+  | { kind: "third"; match: number };      // best-third slot belonging to R32 match `match`
+
+export type MatchRef =
+  | { kind: "winnerOf"; matchId: string }
+  | { kind: "loserOf"; matchId: string };
+
+export type Slot = KnockoutSlot | MatchRef;
 
 export type Match = {
-  id: string;       // R32-1, R16-1, QF-1, SF-1, F, TPM
+  id: string;       // "M73" … "M104" — the official FIFA fixture number
   round: "R32" | "R16" | "QF" | "SF" | "F" | "TPM";
-  slotA: KnockoutSlot | { kind: "winnerOf"; matchId: string } | { kind: "loserOf"; matchId: string };
-  slotB: KnockoutSlot | { kind: "winnerOf"; matchId: string } | { kind: "loserOf"; matchId: string };
+  slotA: Slot;
+  slotB: Slot;
 };
 
-// Round of 32 — 16 matches arranged top-half vs bottom-half
-// Top half: M1-M8 → R16-1..4 → QF-1, QF-2 → SF-1
-// Bottom half: M9-M16 → R16-5..8 → QF-3, QF-4 → SF-2
-// Final: SF-1 winner vs SF-2 winner
-// Third-place: SF-1 loser vs SF-2 loser
+// Slot builders for readability
+const W = (group: string): KnockoutSlot => ({ kind: "winner", group });
+const R = (group: string): KnockoutSlot => ({ kind: "runnerup", group });
+const T = (match: number): KnockoutSlot => ({ kind: "third", match });
+const win = (n: number): MatchRef => ({ kind: "winnerOf", matchId: `M${n}` });
+const lose = (n: number): MatchRef => ({ kind: "loserOf", matchId: `M${n}` });
+
 export const MATCHES: Match[] = [
-  // Round of 32 — top half
-  { id: "R32-1",  round: "R32", slotA: { kind: "winner", group: "A" }, slotB: { kind: "third", index: 1 } },
-  { id: "R32-2",  round: "R32", slotA: { kind: "runnerup", group: "C" }, slotB: { kind: "runnerup", group: "F" } },
-  { id: "R32-3",  round: "R32", slotA: { kind: "winner", group: "B" }, slotB: { kind: "third", index: 2 } },
-  { id: "R32-4",  round: "R32", slotA: { kind: "runnerup", group: "A" }, slotB: { kind: "runnerup", group: "D" } },
-  { id: "R32-5",  round: "R32", slotA: { kind: "winner", group: "C" }, slotB: { kind: "third", index: 3 } },
-  { id: "R32-6",  round: "R32", slotA: { kind: "runnerup", group: "E" }, slotB: { kind: "runnerup", group: "H" } },
-  { id: "R32-7",  round: "R32", slotA: { kind: "winner", group: "D" }, slotB: { kind: "third", index: 4 } },
-  { id: "R32-8",  round: "R32", slotA: { kind: "runnerup", group: "B" }, slotB: { kind: "runnerup", group: "G" } },
-  // Round of 32 — bottom half
-  { id: "R32-9",  round: "R32", slotA: { kind: "winner", group: "E" }, slotB: { kind: "third", index: 5 } },
-  { id: "R32-10", round: "R32", slotA: { kind: "runnerup", group: "I" }, slotB: { kind: "runnerup", group: "L" } },
-  { id: "R32-11", round: "R32", slotA: { kind: "winner", group: "F" }, slotB: { kind: "third", index: 6 } },
-  { id: "R32-12", round: "R32", slotA: { kind: "runnerup", group: "J" }, slotB: { kind: "runnerup", group: "K" } },
-  { id: "R32-13", round: "R32", slotA: { kind: "winner", group: "G" }, slotB: { kind: "third", index: 7 } },
-  { id: "R32-14", round: "R32", slotA: { kind: "winner", group: "I" }, slotB: { kind: "third", index: 8 } },
-  { id: "R32-15", round: "R32", slotA: { kind: "winner", group: "H" }, slotB: { kind: "winner", group: "K" } },
-  { id: "R32-16", round: "R32", slotA: { kind: "winner", group: "J" }, slotB: { kind: "winner", group: "L" } },
+  // Round of 32 (fixtures 73–88)
+  { id: "M73", round: "R32", slotA: R("A"), slotB: R("B") },
+  { id: "M74", round: "R32", slotA: W("E"), slotB: T(74) },
+  { id: "M75", round: "R32", slotA: W("F"), slotB: R("C") },
+  { id: "M76", round: "R32", slotA: W("C"), slotB: R("F") },
+  { id: "M77", round: "R32", slotA: W("I"), slotB: T(77) },
+  { id: "M78", round: "R32", slotA: R("E"), slotB: R("I") },
+  { id: "M79", round: "R32", slotA: W("A"), slotB: T(79) },
+  { id: "M80", round: "R32", slotA: W("L"), slotB: T(80) },
+  { id: "M81", round: "R32", slotA: W("D"), slotB: T(81) },
+  { id: "M82", round: "R32", slotA: W("G"), slotB: T(82) },
+  { id: "M83", round: "R32", slotA: R("K"), slotB: R("L") },
+  { id: "M84", round: "R32", slotA: W("H"), slotB: R("J") },
+  { id: "M85", round: "R32", slotA: W("B"), slotB: T(85) },
+  { id: "M86", round: "R32", slotA: W("J"), slotB: R("H") },
+  { id: "M87", round: "R32", slotA: W("K"), slotB: T(87) },
+  { id: "M88", round: "R32", slotA: R("D"), slotB: R("G") },
 
-  // Round of 16
-  { id: "R16-1", round: "R16", slotA: { kind: "winnerOf", matchId: "R32-1" },  slotB: { kind: "winnerOf", matchId: "R32-2" } },
-  { id: "R16-2", round: "R16", slotA: { kind: "winnerOf", matchId: "R32-3" },  slotB: { kind: "winnerOf", matchId: "R32-4" } },
-  { id: "R16-3", round: "R16", slotA: { kind: "winnerOf", matchId: "R32-5" },  slotB: { kind: "winnerOf", matchId: "R32-6" } },
-  { id: "R16-4", round: "R16", slotA: { kind: "winnerOf", matchId: "R32-7" },  slotB: { kind: "winnerOf", matchId: "R32-8" } },
-  { id: "R16-5", round: "R16", slotA: { kind: "winnerOf", matchId: "R32-9" },  slotB: { kind: "winnerOf", matchId: "R32-10" } },
-  { id: "R16-6", round: "R16", slotA: { kind: "winnerOf", matchId: "R32-11" }, slotB: { kind: "winnerOf", matchId: "R32-12" } },
-  { id: "R16-7", round: "R16", slotA: { kind: "winnerOf", matchId: "R32-13" }, slotB: { kind: "winnerOf", matchId: "R32-14" } },
-  { id: "R16-8", round: "R16", slotA: { kind: "winnerOf", matchId: "R32-15" }, slotB: { kind: "winnerOf", matchId: "R32-16" } },
+  // Round of 16 (89–96)
+  { id: "M89", round: "R16", slotA: win(74), slotB: win(77) },
+  { id: "M90", round: "R16", slotA: win(73), slotB: win(75) },
+  { id: "M91", round: "R16", slotA: win(76), slotB: win(78) },
+  { id: "M92", round: "R16", slotA: win(79), slotB: win(80) },
+  { id: "M93", round: "R16", slotA: win(83), slotB: win(84) },
+  { id: "M94", round: "R16", slotA: win(81), slotB: win(82) },
+  { id: "M95", round: "R16", slotA: win(86), slotB: win(88) },
+  { id: "M96", round: "R16", slotA: win(85), slotB: win(87) },
 
-  // Quarterfinals
-  { id: "QF-1", round: "QF", slotA: { kind: "winnerOf", matchId: "R16-1" }, slotB: { kind: "winnerOf", matchId: "R16-2" } },
-  { id: "QF-2", round: "QF", slotA: { kind: "winnerOf", matchId: "R16-3" }, slotB: { kind: "winnerOf", matchId: "R16-4" } },
-  { id: "QF-3", round: "QF", slotA: { kind: "winnerOf", matchId: "R16-5" }, slotB: { kind: "winnerOf", matchId: "R16-6" } },
-  { id: "QF-4", round: "QF", slotA: { kind: "winnerOf", matchId: "R16-7" }, slotB: { kind: "winnerOf", matchId: "R16-8" } },
+  // Quarterfinals (97–100)
+  { id: "M97",  round: "QF", slotA: win(89), slotB: win(90) },
+  { id: "M98",  round: "QF", slotA: win(93), slotB: win(94) },
+  { id: "M99",  round: "QF", slotA: win(91), slotB: win(92) },
+  { id: "M100", round: "QF", slotA: win(95), slotB: win(96) },
 
-  // Semifinals
-  { id: "SF-1", round: "SF", slotA: { kind: "winnerOf", matchId: "QF-1" }, slotB: { kind: "winnerOf", matchId: "QF-2" } },
-  { id: "SF-2", round: "SF", slotA: { kind: "winnerOf", matchId: "QF-3" }, slotB: { kind: "winnerOf", matchId: "QF-4" } },
+  // Semifinals (101–102)
+  { id: "M101", round: "SF", slotA: win(97), slotB: win(98) },
+  { id: "M102", round: "SF", slotA: win(99), slotB: win(100) },
 
-  // Third-place playoff
-  { id: "TPM", round: "TPM", slotA: { kind: "loserOf", matchId: "SF-1" }, slotB: { kind: "loserOf", matchId: "SF-2" } },
+  // Third-place play-off (103)
+  { id: "M103", round: "TPM", slotA: lose(101), slotB: lose(102) },
 
-  // Final
-  { id: "F", round: "F", slotA: { kind: "winnerOf", matchId: "SF-1" }, slotB: { kind: "winnerOf", matchId: "SF-2" } },
+  // Final (104)
+  { id: "M104", round: "F", slotA: win(101), slotB: win(102) },
 ];
+
+// Well-known match ids
+export const FINAL_MATCH_ID = "M104";
+export const THIRD_PLACE_MATCH_ID = "M103";

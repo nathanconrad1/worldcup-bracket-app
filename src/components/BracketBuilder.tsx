@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { GROUPS, MATCHES, teamByCode, type Match } from "@/lib/tournament";
+import { GROUPS, MATCHES, FINAL_MATCH_ID, THIRD_PLACE_MATCH_ID, teamByCode, type Match } from "@/lib/tournament";
 import {
   ROUND_LABEL,
   countCompletedMatches,
@@ -475,7 +475,7 @@ function KnockoutStage({
     );
   }
 
-  const tpm = MATCHES.find((m) => m.id === "TPM")!;
+  const tpm = MATCHES.find((m) => m.id === THIRD_PLACE_MATCH_ID)!;
 
   return (
     <div className="space-y-8">
@@ -508,7 +508,7 @@ function KnockoutStage({
             <h3 className="display-md text-cream">Third Place Match</h3>
           </div>
           <div className="font-mono text-[10px] uppercase tracking-widest text-muted">
-            Losers of SF-1 vs SF-2
+            Losers of the semifinals
           </div>
         </div>
         <div className="max-w-md">
@@ -532,7 +532,7 @@ function MatchCard({
   const teamB = resolveSlot(match.slotB, picks);
   const winner = picks.matchWinners[match.id];
 
-  const isFinal = match.id === "F";
+  const isFinal = match.id === FINAL_MATCH_ID;
 
   return (
     <div

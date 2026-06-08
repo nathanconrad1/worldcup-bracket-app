@@ -100,3 +100,33 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
+
+-- =============================================================================
+-- Tournament results — the single source of truth for ACTUAL outcomes.
+-- One row (id = 'wc2026'), shaped like a bracket's picks so scoring can compare
+-- a user's picks directly against it. Anyone can read it (needed for the
+-- leaderboard); only the service role may write (scripts/enter-result.mjs, or a
+-- future nightly cron). There are intentionally no write policies for end users.
+-- =============================================================================
+create table if not exists public.tournament_results (
+  id                  text primary key default 'wc2026',
+  group_standings     jsonb not null default '{}'::jsonb,   -- { "A": ["MEX","KOR","RSA","CZE"], ... }
+  third_place_advance jsonb not null default '[]'::jsonb,   -- ["A","C","D","F","G","I","J","L"]
+  match_winners       jsonb not null default '{}'::jsonb,   -- { "M73": "BRA", "M74": "GER", ... }
+  updated_at          timestamptz not null default now()
+);
+
+insert into public.tournament_results (id) values ('wc2026')
+  on conflict (id) do nothing;
+
+alter table public.tournament_results enable row level security;
+
+drop policy if exists "Results are viewable by everyone" on public.tournament_results;
+create policy "Results are viewable by everyone"
+  on public.tournament_results for select using (true);
+-- No insert/update/delete policies on purpose → writes require the service role key.
+
+drop trigger if exists set_results_updated_at on public.tournament_results;
+create trigger set_results_updated_at
+  before update on public.tournament_results
+  for each row execute function public.handle_updated_at();

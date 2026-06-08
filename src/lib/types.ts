@@ -1,4 +1,5 @@
-import { GROUPS, MATCHES, type Match, teamByCode } from "./tournament";
+import { GROUPS, MATCHES, FINAL_MATCH_ID, type Match, teamByCode } from "./tournament";
+import { THIRD_PLACE_ALLOCATION, THIRD_PLACE_SLOT_MATCHES } from "./thirdPlaceAllocation";
 
 // The shape of bracket picks stored in the DB.
 // - groupStandings: per group, an ordered list of team codes [1st, 2nd, 3rd, 4th]
@@ -30,9 +31,16 @@ export function resolveSlot(
     if (slot.kind === "runnerup") return standings[1] ?? null;
   }
   if (slot.kind === "third") {
-    const idx = slot.index - 1;
-    const groupLetter = picks.thirdPlaceAdvance[idx];
-    if (!groupLetter) return null;
+    // Which group's 3rd-placed team fills this slot depends on the full set of
+    // eight qualifying third-placed groups (FIFA's 495-combination table).
+    const groups = picks.thirdPlaceAdvance;
+    if (!groups || groups.length !== 8) return null;
+    const key = [...groups].sort().join("");
+    const alloc = THIRD_PLACE_ALLOCATION[key];
+    if (!alloc) return null;
+    const slotIdx = (THIRD_PLACE_SLOT_MATCHES as readonly number[]).indexOf(slot.match);
+    if (slotIdx < 0) return null;
+    const groupLetter = alloc[slotIdx];
     return picks.groupStandings[groupLetter]?.[2] ?? null;
   }
   if (slot.kind === "winnerOf") {
@@ -57,7 +65,7 @@ export function slotLabel(slot: Match["slotA"]): string {
   if ("group" in slot) {
     return slot.kind === "winner" ? `Winner ${slot.group}` : `Runner-up ${slot.group}`;
   }
-  if (slot.kind === "third") return `3rd #${slot.index}`;
+  if (slot.kind === "third") return "3rd Place";
   if (slot.kind === "winnerOf") return `Winner ${slot.matchId}`;
   if (slot.kind === "loserOf") return `Loser ${slot.matchId}`;
   return "TBD";
@@ -75,7 +83,7 @@ export const ROUND_LABEL: Record<Match["round"], string> = {
 
 // Validate that picks are complete enough to declare a champion
 export function getChampion(picks: BracketPicks): string | null {
-  return picks.matchWinners["F"] ?? null;
+  return picks.matchWinners[FINAL_MATCH_ID] ?? null;
 }
 
 // How many of the 6 knockout rounds are filled in?
