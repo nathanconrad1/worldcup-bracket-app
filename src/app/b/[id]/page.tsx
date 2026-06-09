@@ -2,13 +2,14 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import Header from "@/components/Header";
-import { GROUPS, MATCHES, FINAL_MATCH_ID, teamByCode } from "@/lib/tournament";
+import { GROUPS, FINAL_MATCH_ID, orderedMatchesByRound, teamByCode } from "@/lib/tournament";
 import {
   ROUND_LABEL,
   resolveSlot,
   slotLabel,
   type BracketPicks,
 } from "@/lib/types";
+import DragScroll from "@/components/DragScroll";
 
 export default async function PublicBracketPage({
   params,
@@ -34,6 +35,7 @@ export default async function PublicBracketPage({
   };
   const profile = (bracket as unknown as { profiles: { username: string } }).profiles;
   const champion = picks.matchWinners[FINAL_MATCH_ID] ? teamByCode(picks.matchWinners[FINAL_MATCH_ID]) : null;
+  const ordered = orderedMatchesByRound();
 
   const {
     data: { user },
@@ -105,39 +107,43 @@ export default async function PublicBracketPage({
         {/* Knockouts */}
         <section>
           <div className="eyebrow mb-3">Knockout predictions</div>
-          <div className="overflow-x-auto">
-            <div className="flex min-w-max gap-3">
+          <DragScroll>
+            <div className="flex min-w-max items-stretch gap-3">
               {(["R32", "R16", "QF", "SF", "F"] as const).map((round) => {
-                const matches = MATCHES.filter((m) => m.round === round);
+                const matches = ordered[round] ?? [];
                 return (
                   <div key={round} className="flex flex-col gap-2" style={{ minWidth: 240 }}>
                     <div className="border border-edge bg-surface px-3 py-2">
                       <div className="eyebrow">{ROUND_LABEL[round]}</div>
                     </div>
-                    {matches.map((m) => {
-                      const a = resolveSlot(m.slotA, picks);
-                      const b = resolveSlot(m.slotB, picks);
-                      const w = picks.matchWinners[m.id];
-                      const teamA = a ? teamByCode(a) : null;
-                      const teamB = b ? teamByCode(b) : null;
-                      return (
-                        <div key={m.id} className="border border-edge bg-ink">
-                          <div className="border-b border-edge bg-surface px-3 py-1">
-                            <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
-                              {m.id}
-                            </span>
+                    <div className="flex flex-1 flex-col">
+                      {matches.map((m) => {
+                        const a = resolveSlot(m.slotA, picks);
+                        const b = resolveSlot(m.slotB, picks);
+                        const w = picks.matchWinners[m.id] ?? null;
+                        const teamA = a ? teamByCode(a) : null;
+                        const teamB = b ? teamByCode(b) : null;
+                        return (
+                          <div key={m.id} className="flex flex-1 flex-col justify-center py-1.5">
+                            <div className="border border-edge bg-ink">
+                              <div className="border-b border-edge bg-surface px-3 py-1">
+                                <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
+                                  {m.id}
+                                </span>
+                              </div>
+                              <PublicSlotRow team={teamA} fallback={slotLabel(m.slotA)} isWinner={w === a && a !== null} isLoser={!!w && w !== a} />
+                              <div className="border-t border-edge" />
+                              <PublicSlotRow team={teamB} fallback={slotLabel(m.slotB)} isWinner={w === b && b !== null} isLoser={!!w && w !== b} />
+                            </div>
                           </div>
-                          <PublicSlotRow team={teamA} fallback={slotLabel(m.slotA)} isWinner={w === a && a !== null} isLoser={!!w && w !== a} />
-                          <div className="border-t border-edge" />
-                          <PublicSlotRow team={teamB} fallback={slotLabel(m.slotB)} isWinner={w === b && b !== null} isLoser={!!w && w !== b} />
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
             </div>
-          </div>
+          </DragScroll>
         </section>
 
         {!user && (

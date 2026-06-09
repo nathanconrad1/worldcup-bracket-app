@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { GROUPS, MATCHES, FINAL_MATCH_ID, THIRD_PLACE_MATCH_ID, teamByCode, type Match } from "@/lib/tournament";
+import { GROUPS, MATCHES, FINAL_MATCH_ID, THIRD_PLACE_MATCH_ID, orderedMatchesByRound, teamByCode, type Match } from "@/lib/tournament";
+import DragScroll from "@/components/DragScroll";
 import {
   ROUND_LABEL,
   countCompletedMatches,
@@ -100,7 +101,14 @@ export default function BracketBuilder({ userId, initialBracket }: Props) {
 
   function pickWinner(matchId: string, teamCode: string) {
     setPicks((p) => {
-      const next = { ...p, matchWinners: { ...p.matchWinners, [matchId]: teamCode } };
+      const nextWinners = { ...p.matchWinners };
+      if (nextWinners[matchId] === teamCode) {
+        // Clicking the already-selected team clears the pick (toggle off)
+        delete nextWinners[matchId];
+      } else {
+        nextWinners[matchId] = teamCode;
+      }
+      const next = { ...p, matchWinners: nextWinners };
       // Cascade: if downstream matches no longer resolve correctly, clean them up
       return { ...next, matchWinners: cleanupWinners(next) };
     });
@@ -448,14 +456,7 @@ function KnockoutStage({
   onPick: (matchId: string, teamCode: string) => void;
 }) {
   const rounds: Match["round"][] = ["R32", "R16", "QF", "SF", "F"];
-  const matchesByRound = useMemo(() => {
-    const map: Record<string, Match[]> = {};
-    for (const m of MATCHES) {
-      if (!map[m.round]) map[m.round] = [];
-      map[m.round].push(m);
-    }
-    return map;
-  }, []);
+  const matchesByRound = useMemo(() => orderedMatchesByRound(), []);
 
   // Are group standings filled in enough to start picking?
   const groupsRanked = GROUPS.every(
@@ -479,7 +480,7 @@ function KnockoutStage({
 
   return (
     <div className="space-y-8">
-      <div className="overflow-x-auto">
+      <DragScroll>
         <div className="flex min-w-max items-stretch gap-3">
           {rounds.map((r) => (
             <div key={r} className="flex flex-col gap-3" style={{ minWidth: 280 }}>
@@ -490,15 +491,19 @@ function KnockoutStage({
                   {(matchesByRound[r] ?? []).length === 1 ? "" : "es"}
                 </div>
               </div>
-              <div className="flex flex-1 flex-col justify-around gap-3">
+              {/* Equal-height cells per round → each later-round match centers
+                  between the two matches that feed it, so columns line up. */}
+              <div className="flex flex-1 flex-col">
                 {(matchesByRound[r] ?? []).map((m) => (
-                  <MatchCard key={m.id} match={m} picks={picks} onPick={onPick} />
+                  <div key={m.id} className="flex flex-1 flex-col justify-center py-2">
+                    <MatchCard match={m} picks={picks} onPick={onPick} />
+                  </div>
                 ))}
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </DragScroll>
 
       {/* Third place playoff */}
       <div className="border border-edge bg-surface p-5">
@@ -530,7 +535,7 @@ function MatchCard({
 }) {
   const teamA = resolveSlot(match.slotA, picks);
   const teamB = resolveSlot(match.slotB, picks);
-  const winner = picks.matchWinners[match.id];
+  const winner = picks.matchWinners[match.id] ?? null;
 
   const isFinal = match.id === FINAL_MATCH_ID;
 

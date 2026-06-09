@@ -218,3 +218,32 @@ export const MATCHES: Match[] = [
 // Well-known match ids
 export const FINAL_MATCH_ID = "M104";
 export const THIRD_PLACE_MATCH_ID = "M103";
+
+// Order matches within each round so the bracket lines up visually: a match sits
+// directly between the two matches that feed it. Computed by walking the tree
+// from the final (slotA subtree before slotB), so it stays correct even if the
+// structure changes. The third-place play-off is appended on its own (it is fed
+// by the semifinal losers, not reachable from the final).
+export function orderedMatchesByRound(): Record<Match["round"], Match[]> {
+  const byId = new Map(MATCHES.map((m) => [m.id, m]));
+  const buckets: Record<Match["round"], Match[]> = {
+    R32: [], R16: [], QF: [], SF: [], F: [], TPM: [],
+  };
+  const seen = new Set<string>();
+  function visit(m: Match) {
+    if (seen.has(m.id)) return;
+    seen.add(m.id);
+    for (const slot of [m.slotA, m.slotB]) {
+      if (slot.kind === "winnerOf") {
+        const child = byId.get(slot.matchId);
+        if (child) visit(child);
+      }
+    }
+    buckets[m.round].push(m);
+  }
+  const final = byId.get(FINAL_MATCH_ID);
+  if (final) visit(final);
+  const tpm = byId.get(THIRD_PLACE_MATCH_ID);
+  if (tpm && !seen.has(tpm.id)) buckets.TPM.push(tpm);
+  return buckets;
+}
