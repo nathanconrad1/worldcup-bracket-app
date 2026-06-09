@@ -14,9 +14,18 @@ import {
   slotLabel,
   type BracketPicks,
 } from "@/lib/types";
+import {
+  POINTS,
+  actualAdvancersByRound,
+  eliminatedTeams,
+  hasAnyResults,
+  knockoutSlotView,
+  type SlotView,
+} from "@/lib/scoring";
 
 type Props = {
   userId: string;
+  actual: BracketPicks | null;
   initialBracket: {
     id: string;
     name: string;
@@ -24,7 +33,7 @@ type Props = {
   };
 };
 
-export default function BracketBuilder({ userId, initialBracket }: Props) {
+export default function BracketBuilder({ userId, actual, initialBracket }: Props) {
   const router = useRouter();
   const supabase = createClient();
   const [picks, setPicks] = useState<BracketPicks>(initialBracket.picks);
@@ -122,6 +131,10 @@ export default function BracketBuilder({ userId, initialBracket }: Props) {
   const koComplete = countCompletedMatches(picks);
   const champion = getChampion(picks);
 
+  // Scored overlay state (only active once real results start arriving)
+  const scoringLive = hasAnyResults(actual);
+  const eliminated = useMemo(() => eliminatedTeams(actual), [actual]);
+
   return (
     <div className="container-page py-8 md:py-12">
       {/* Top row: name + status */}
@@ -158,14 +171,33 @@ export default function BracketBuilder({ userId, initialBracket }: Props) {
         </TabBtn>
       </div>
 
+      {scoringLive && (
+        <div className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-2 border border-edge bg-surface px-4 py-3 font-mono text-[10px] uppercase tracking-widest text-muted">
+          <span className="text-cream">Scoring is live</span>
+          <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 bg-pitch" /> Your pick still in</span>
+          <span className="flex items-center gap-1.5"><span className="text-pitch">✓</span> Won its match</span>
+          <span className="flex items-center gap-1.5"><span className="text-sunset line-through">Aa</span> Eliminated</span>
+          <span className="flex items-center gap-1.5"><span className="text-pitch">+N</span> Points earned</span>
+        </div>
+      )}
+
       {tab === "groups" ? (
         <GroupStage
           picks={picks}
+          actual={actual}
+          scoringLive={scoringLive}
+          eliminated={eliminated}
           onRank={setGroupRanking}
           onToggleThird={toggleThirdPlaceAdvance}
         />
       ) : (
-        <KnockoutStage picks={picks} onPick={pickWinner} />
+        <KnockoutStage
+          picks={picks}
+          actual={actual}
+          scoringLive={scoringLive}
+          eliminated={eliminated}
+          onPick={pickWinner}
+        />
       )}
     </div>
   );
@@ -266,10 +298,16 @@ function TabBtn({ children, active, onClick }: { children: React.ReactNode; acti
 
 function GroupStage({
   picks,
+  actual,
+  scoringLive,
+  eliminated,
   onRank,
   onToggleThird,
 }: {
   picks: BracketPicks;
+  actual: BracketPicks | null;
+  scoringLive: boolean;
+  eliminated: Set<string>;
   onRank: (letter: string, ordered: string[]) => void;
   onToggleThird: (letter: string) => void;
 }) {
@@ -295,6 +333,9 @@ function GroupStage({
             key={g.letter}
             group={g}
             order={picks.groupStandings[g.letter] ?? []}
+            actualOrder={actual?.groupStandings[g.letter] ?? null}
+            scoringLive={scoringLive}
+            eliminated={eliminated}
             onChange={(ordered) => onRank(g.letter, ordered)}
           />
         ))}
@@ -359,10 +400,16 @@ function GroupStage({
 function GroupCard({
   group,
   order,
+  actualOrder,
+  scoringLive,
+  eliminated,
   onChange,
 }: {
   group: { letter: string; teams: { code: string; name: string; flag: string }[] };
   order: string[];
+  actualOrder: string[] | null;
+  scoringLive: boolean;
+  eliminated: Set<string>;
   onChange: (ordered: string[]) => void;
 }) {
   function handleClick(code: string) {
@@ -382,6 +429,12 @@ function GroupCard({
   const isComplete = order.length === 4;
   const placeLabels = ["1st", "2nd", "3rd", "4th"];
 
+  // Group score: +1 per position predicted correctly (once the group is final).
+  const scored = scoringLive && actualOrder && actualOrder.length === 4;
+  const correctCount = scored
+    ? order.filter((code, i) => code && code === actualOrder![i]).length
+    : 0;
+
   return (
     <div
       className={`border bg-surface p-5 transition ${
@@ -394,10 +447,17 @@ function GroupCard({
           <div className="display-md text-cream">{group.letter}</div>
         </div>
         <div className="text-right">
-          <div className="font-mono text-[10px] uppercase tracking-widest text-muted">
-            {order.length}/4 ranked
-          </div>
-          {order.length > 0 && (
+          {scored ? (
+            <div className="font-mono text-[10px] uppercase tracking-widest">
+              <span className="text-pitch">+{correctCount}</span>
+              <span className="text-muted"> · {correctCount}/4 correct</span>
+            </div>
+          ) : (
+            <div className="font-mono text-[10px] uppercase tracking-widest text-muted">
+              {order.length}/4 ranked
+            </div>
+          )}
+          {order.length > 0 && !scored && (
             <button
               onClick={reset}
               className="mt-1 font-mono text-[10px] uppercase tracking-widest text-sunset hover:underline"
@@ -412,6 +472,8 @@ function GroupCard({
         {group.teams.map((t) => {
           const placeIdx = order.indexOf(t.code);
           const isPicked = placeIdx >= 0;
+          const isOut = scoringLive && eliminated.has(t.code);
+          const posCorrect = scored && placeIdx >= 0 && actualOrder![placeIdx] === t.code;
           return (
             <li key={t.code}>
               <button
@@ -430,16 +492,39 @@ function GroupCard({
               >
                 <span className="flex items-center gap-3">
                   <span className="text-xl">{t.flag}</span>
-                  <span className="font-medium">{t.name}</span>
+                  <span className={`font-medium ${isOut ? "line-through decoration-sunset opacity-70" : ""}`}>
+                    {t.name}
+                  </span>
                 </span>
-                <span className="font-mono text-xs uppercase tracking-widest">
-                  {isPicked ? placeLabels[placeIdx] : "—"}
+                <span className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest">
+                  {scored && (posCorrect
+                    ? <span className={placeIdx <= 2 ? "text-ink/70" : "text-pitch"}>✓ +1</span>
+                    : isPicked && <span className="text-sunset">✗</span>)}
+                  <span>{isPicked ? placeLabels[placeIdx] : "—"}</span>
                 </span>
               </button>
             </li>
           );
         })}
       </ul>
+
+      {scored && (
+        <div className="mt-3 border-t border-edge pt-2.5">
+          <div className="eyebrow mb-1.5">Actual finish</div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-muted">
+            {actualOrder!.map((code, i) => {
+              const t = teamByCode(code);
+              return (
+                <span key={code} className="flex items-center gap-1">
+                  <span className="opacity-60">{i + 1}</span>
+                  <span>{t?.flag}</span>
+                  <span className="uppercase tracking-widest">{code}</span>
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -450,13 +535,21 @@ function GroupCard({
 
 function KnockoutStage({
   picks,
+  actual,
+  scoringLive,
+  eliminated,
   onPick,
 }: {
   picks: BracketPicks;
+  actual: BracketPicks | null;
+  scoringLive: boolean;
+  eliminated: Set<string>;
   onPick: (matchId: string, teamCode: string) => void;
 }) {
   const rounds: Match["round"][] = ["R32", "R16", "QF", "SF", "F"];
   const matchesByRound = useMemo(() => orderedMatchesByRound(), []);
+  const advancers = useMemo(() => actualAdvancersByRound(actual), [actual]);
+  const userAdvancers = useMemo(() => actualAdvancersByRound(picks), [picks]);
 
   // Are group standings filled in enough to start picking?
   const groupsRanked = GROUPS.every(
@@ -496,7 +589,16 @@ function KnockoutStage({
               <div className="flex flex-1 flex-col">
                 {(matchesByRound[r] ?? []).map((m) => (
                   <div key={m.id} className="flex flex-1 flex-col justify-center py-2">
-                    <MatchCard match={m} picks={picks} onPick={onPick} />
+                    <MatchCard
+                      match={m}
+                      picks={picks}
+                      actual={actual}
+                      advancers={advancers}
+                      userAdvancers={userAdvancers}
+                      scoringLive={scoringLive}
+                      eliminated={eliminated}
+                      onPick={onPick}
+                    />
                   </div>
                 ))}
               </div>
@@ -517,7 +619,16 @@ function KnockoutStage({
           </div>
         </div>
         <div className="max-w-md">
-          <MatchCard match={tpm} picks={picks} onPick={onPick} />
+          <MatchCard
+            match={tpm}
+            picks={picks}
+            actual={actual}
+            advancers={advancers}
+            userAdvancers={userAdvancers}
+            scoringLive={scoringLive}
+            eliminated={eliminated}
+            onPick={onPick}
+          />
         </div>
       </div>
     </div>
@@ -527,10 +638,20 @@ function KnockoutStage({
 function MatchCard({
   match,
   picks,
+  actual,
+  advancers,
+  userAdvancers,
+  scoringLive,
+  eliminated,
   onPick,
 }: {
   match: Match;
   picks: BracketPicks;
+  actual: BracketPicks | null;
+  advancers: Record<Match["round"], Set<string>>;
+  userAdvancers: Record<Match["round"], Set<string>>;
+  scoringLive: boolean;
+  eliminated: Set<string>;
   onPick: (matchId: string, teamCode: string) => void;
 }) {
   const teamA = resolveSlot(match.slotA, picks);
@@ -538,6 +659,27 @@ function MatchCard({
   const winner = picks.matchWinners[match.id] ?? null;
 
   const isFinal = match.id === FINAL_MATCH_ID;
+
+  // Who ACTUALLY belongs in each slot.
+  const actualA = scoringLive && actual ? resolveSlot(match.slotA, actual) : null;
+  const actualB = scoringLive && actual ? resolveSlot(match.slotB, actual) : null;
+
+  const common = {
+    round: match.round,
+    eliminated,
+    advancers,
+    userAdvancers,
+  };
+  const viewA = knockoutSlotView({ ...common, pick: teamA, actualOccupant: actualA, isWinnerPick: winner === teamA && teamA !== null });
+  const viewB = knockoutSlotView({ ...common, pick: teamB, actualOccupant: actualB, isWinnerPick: winner === teamB && teamB !== null });
+
+  // Points ride on the ACTUAL match (same card as the ✓): if the real winner of
+  // this fixture is a team you correctly advanced this round, you earned the points.
+  const actualWinnerHere = scoringLive && actual ? actual.matchWinners[match.id] ?? null : null;
+  const earned =
+    actualWinnerHere && userAdvancers[match.round].has(actualWinnerHere)
+      ? POINTS.round[match.round]
+      : 0;
 
   return (
     <div
@@ -551,25 +693,35 @@ function MatchCard({
         <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
           {match.id}
         </span>
-        {isFinal && (
-          <span className="font-mono text-[10px] uppercase tracking-widest text-pitch">
-            Final
+        {earned > 0 ? (
+          <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-pitch">
+            +{earned}
           </span>
+        ) : (
+          isFinal && (
+            <span className="font-mono text-[10px] uppercase tracking-widest text-pitch">
+              Final
+            </span>
+          )
         )}
       </div>
       <SlotRow
         teamCode={teamA}
         labelFallback={slotLabel(match.slotA)}
+        scoringLive={scoringLive}
         isWinner={winner === teamA && teamA !== null}
         isLoser={winner !== null && winner !== teamA}
+        view={viewA}
         onClick={() => teamA && onPick(match.id, teamA)}
       />
       <div className="border-t border-edge" />
       <SlotRow
         teamCode={teamB}
         labelFallback={slotLabel(match.slotB)}
+        scoringLive={scoringLive}
         isWinner={winner === teamB && teamB !== null}
         isLoser={winner !== null && winner !== teamB}
+        view={viewB}
         onClick={() => teamB && onPick(match.id, teamB)}
       />
     </div>
@@ -579,45 +731,86 @@ function MatchCard({
 function SlotRow({
   teamCode,
   labelFallback,
+  scoringLive,
   isWinner,
   isLoser,
+  view,
   onClick,
 }: {
   teamCode: string | null;
   labelFallback: string;
+  scoringLive: boolean;
   isWinner: boolean;
   isLoser: boolean;
+  view: SlotView;
   onClick: () => void;
 }) {
   const team = teamCode ? teamByCode(teamCode) : null;
   const empty = !team;
+  const actualTeam = scoringLive && view.actualCode ? teamByCode(view.actualCode) : null;
+
+  // Button background + name treatment. Before any results, fall back to the
+  // plain prediction styling (your pick highlighted, predicted loser muted).
+  let buttonClass: string;
+  let nameClass = "";
+  if (scoringLive) {
+    buttonClass = view.green ? "bg-pitch text-ink" : "text-cream hover:bg-surface2";
+    nameClass = view.struck
+      ? "line-through decoration-sunset text-muted"
+      : view.dim
+      ? "text-muted opacity-80"
+      : "";
+  } else {
+    buttonClass = isWinner
+      ? "is-selected bg-pitch text-ink"
+      : isLoser
+      ? "is-eliminated text-muted"
+      : "text-cream hover:bg-surface2";
+  }
+
   return (
     <button
       onClick={onClick}
       disabled={empty}
-      className={`team-pick flex w-full items-center justify-between px-3 py-2.5 text-left transition ${
-        isWinner
-          ? "is-selected bg-pitch text-ink"
-          : isLoser
-          ? "is-eliminated text-muted"
-          : "text-cream hover:bg-surface2"
-      } ${empty ? "cursor-not-allowed" : ""}`}
+      className={`team-pick flex w-full flex-col gap-0.5 px-3 py-2 text-left transition ${buttonClass} ${
+        empty ? "cursor-not-allowed" : ""
+      }`}
     >
-      {team ? (
-        <span className="flex items-center gap-2.5">
-          <span className="text-lg">{team.flag}</span>
-          <span className="font-medium">{team.name}</span>
-        </span>
-      ) : (
-        <span className="font-mono text-xs uppercase tracking-widest text-muted">
-          {labelFallback}
-        </span>
-      )}
-      {team && (
-        <span className="font-mono text-[10px] uppercase tracking-widest opacity-70">
-          {team.code}
+      {/* Small "actual → real team" line when your pick wasn't who really got here.
+          The ✓ rides here when you correctly called this team's run but mis-slotted it. */}
+      {scoringLive && actualTeam && (
+        <span className="flex items-center gap-1 font-mono text-[10px] text-muted">
+          <span className="opacity-70">actual →</span>
+          <span>{actualTeam.flag}</span>
+          <span className="uppercase tracking-widest">{actualTeam.name}</span>
+          {view.smallCheck && <span className="font-bold text-pitch">✓</span>}
         </span>
       )}
+      <span className="flex w-full items-center justify-between">
+        {team ? (
+          <span className="flex items-center gap-2.5">
+            <span className="text-lg">{team.flag}</span>
+            <span className={`font-medium ${nameClass}`}>{team.name}</span>
+            {scoringLive && view.mainCheck && (
+              <span
+                title="Correct pick"
+                className={`font-mono text-xs font-bold ${view.green ? "text-ink" : "text-pitch"}`}
+              >
+                ✓
+              </span>
+            )}
+          </span>
+        ) : (
+          <span className="font-mono text-xs uppercase tracking-widest text-muted">
+            {labelFallback}
+          </span>
+        )}
+        {team && (
+          <span className="font-mono text-[10px] uppercase tracking-widest opacity-70">
+            {team.code}
+          </span>
+        )}
+      </span>
     </button>
   );
 }

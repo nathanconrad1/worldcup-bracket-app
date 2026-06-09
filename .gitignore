@@ -9,3 +9,5 @@ out
 next-env.d.ts
 *.tsbuildinfo
 .wc-tmp
+
+mockup-results.html

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import BracketBuilder from "@/components/BracketBuilder";
 import Header from "@/components/Header";
 import { emptyPicks, type BracketPicks } from "@/lib/types";
+import { fetchActualResults } from "@/lib/results";
 
 export default async function BracketPage() {
   const supabase = await createClient();
@@ -45,12 +46,14 @@ export default async function BracketPage() {
   }
 
   const picks = (bracket.picks as BracketPicks) ?? emptyPicks();
+  const actual = await fetchActualResults(supabase);
 
   return (
     <>
       <Header signedIn={true} username={profile?.username} />
       <BracketBuilder
         userId={user.id}
+        actual={actual}
         initialBracket={{
           id: bracket.id,
           name: bracket.name,
