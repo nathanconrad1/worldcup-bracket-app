@@ -9,6 +9,8 @@
 //   node scripts/enter-result.mjs thirds A C D F G I J L       # the 8 groups whose 3rd advanced
 //   node scripts/enter-result.mjs match M73 BRA                # winner of fixture M73
 //   node scripts/enter-result.mjs unset-match M73             # clear a match result
+//   node scripts/enter-result.mjs lock 2026-06-11T19:00:00Z   # freeze all bracket edits at this time
+//   node scripts/enter-result.mjs lock off                    # re-open editing (clear the lock)
 //
 // Match ids are the official fixture numbers M73–M104 (see src/lib/tournament.ts).
 
@@ -65,12 +67,12 @@ const supabase = createClient(url, serviceKey, { auth: { persistSession: false }
 async function getRow() {
   const { data, error } = await supabase
     .from("tournament_results")
-    .select("group_standings, third_place_advance, match_winners")
+    .select("group_standings, third_place_advance, match_winners, picks_lock_at")
     .eq("id", RESULTS_ID)
     .maybeSingle();
   if (error) die(error.message);
   return (
-    data ?? { group_standings: {}, third_place_advance: [], match_winners: {} }
+    data ?? { group_standings: {}, third_place_advance: [], match_winners: {}, picks_lock_at: null }
   );
 }
 
@@ -88,8 +90,11 @@ if (cmd === "show" || !cmd) {
   console.log(JSON.stringify(row, null, 2));
   const mw = row.match_winners ?? {};
   const gs = row.group_standings ?? {};
+  const lock = row.picks_lock_at
+    ? `picks lock at ${row.picks_lock_at} (${new Date(row.picks_lock_at) > new Date() ? "open until then" : "LOCKED"})`
+    : "picks open (no lock set)";
   console.log(
-    `\n${Object.keys(gs).length} group(s) set · ${Object.keys(mw).length} match result(s) set`
+    `\n${Object.keys(gs).length} group(s) set · ${Object.keys(mw).length} match result(s) set · ${lock}`
   );
 } else if (cmd === "group") {
   const [letter, ...teams] = args;
@@ -121,6 +126,19 @@ if (cmd === "show" || !cmd) {
   delete next[matchId];
   await save({ match_winners: next });
   console.log(`✓ ${matchId} result cleared`);
+} else if (cmd === "lock") {
+  const [when] = args;
+  if (when === "off" || when === "clear" || when === "none") {
+    await save({ picks_lock_at: null });
+    console.log("✓ Picks unlocked — editing is open (no lock time).");
+  } else {
+    const d = new Date(when);
+    if (!when || isNaN(d.getTime())) {
+      die(`Invalid datetime "${when ?? ""}". Use ISO 8601, e.g. 2026-06-11T19:00:00Z (or "off").`);
+    }
+    await save({ picks_lock_at: d.toISOString() });
+    console.log(`✓ Picks lock set to ${d.toISOString()} (your local: ${d.toLocaleString()}).`);
+  }
 } else {
-  die(`Unknown command "${cmd}". Use: show | group | thirds | match | unset-match`);
+  die(`Unknown command "${cmd}". Use: show | group | thirds | match | unset-match | lock`);
 }

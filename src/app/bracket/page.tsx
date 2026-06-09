@@ -48,12 +48,20 @@ export default async function BracketPage() {
   const picks = (bracket.picks as BracketPicks) ?? emptyPicks();
   const actual = await fetchActualResults(supabase);
 
+  const { data: cfg } = await supabase
+    .from("tournament_results")
+    .select("picks_lock_at")
+    .eq("id", "wc2026")
+    .maybeSingle();
+  const lockAt = (cfg?.picks_lock_at as string | null) ?? null;
+
   return (
     <>
       <Header signedIn={true} username={profile?.username} />
       <BracketBuilder
         userId={user.id}
         actual={actual}
+        lockAt={lockAt}
         initialBracket={{
           id: bracket.id,
           name: bracket.name,

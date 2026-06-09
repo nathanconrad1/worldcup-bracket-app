@@ -26,6 +26,7 @@ import {
 type Props = {
   userId: string;
   actual: BracketPicks | null;
+  lockAt: string | null;
   initialBracket: {
     id: string;
     name: string;
@@ -33,7 +34,7 @@ type Props = {
   };
 };
 
-export default function BracketBuilder({ userId, actual, initialBracket }: Props) {
+export default function BracketBuilder({ userId, actual, lockAt, initialBracket }: Props) {
   const router = useRouter();
   const supabase = createClient();
   const [picks, setPicks] = useState<BracketPicks>(initialBracket.picks);
@@ -42,15 +43,28 @@ export default function BracketBuilder({ userId, actual, initialBracket }: Props
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [, startTransition] = useTransition();
 
-  // Auto-save 1.2s after the last change
+  // Picks lock — once the tournament kicks off, the bracket becomes read-only.
+  // (The database enforces this too; this is the UX layer.)
+  const [locked, setLocked] = useState(() => !!lockAt && Date.now() >= Date.parse(lockAt));
   useEffect(() => {
-    if (saveStatus === "saving") return;
+    if (!lockAt || locked) return;
+    const ms = Date.parse(lockAt) - Date.now();
+    if (ms <= 0) { setLocked(true); return; }
+    // setTimeout caps ~24.8 days; the lock is days away at most, so this is safe.
+    const t = setTimeout(() => setLocked(true), ms);
+    return () => clearTimeout(t);
+  }, [lockAt, locked]);
+
+  // Auto-save 1.2s after the last change (never once locked)
+  useEffect(() => {
+    if (locked || saveStatus === "saving") return;
     const t = setTimeout(() => save(), 1200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [picks, name]);
+  }, [picks, name, locked]);
 
   async function save() {
+    if (locked) return;
     setSaveStatus("saving");
     const champion = getChampion(picks);
     const { error } = await supabase
@@ -75,6 +89,7 @@ export default function BracketBuilder({ userId, actual, initialBracket }: Props
 
   // === Group stage handlers ============================================
   function setGroupRanking(letter: string, ordered: string[]) {
+    if (locked) return;
     setPicks((p) => ({
       ...p,
       groupStandings: { ...p.groupStandings, [letter]: ordered },
@@ -84,6 +99,7 @@ export default function BracketBuilder({ userId, actual, initialBracket }: Props
   }
 
   function toggleThirdPlaceAdvance(letter: string) {
+    if (locked) return;
     setPicks((p) => {
       const has = p.thirdPlaceAdvance.includes(letter);
       let next = has
@@ -109,6 +125,7 @@ export default function BracketBuilder({ userId, actual, initialBracket }: Props
   }
 
   function pickWinner(matchId: string, teamCode: string) {
+    if (locked) return;
     setPicks((p) => {
       const nextWinners = { ...p.matchWinners };
       if (nextWinners[matchId] === teamCode) {
@@ -137,6 +154,18 @@ export default function BracketBuilder({ userId, actual, initialBracket }: Props
 
   return (
     <div className="container-page py-8 md:py-12">
+      {locked && (
+        <div className="mb-6 flex items-center gap-3 border border-gold bg-gold/10 px-4 py-3">
+          <span className="text-lg">🔒</span>
+          <div>
+            <div className="font-mono text-xs uppercase tracking-widest text-gold">Picks locked</div>
+            <div className="text-sm text-muted">
+              The tournament has started — your bracket is final and can no longer be edited.
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top row: name + status */}
       <div className="mb-6 flex flex-col gap-4 border-b border-edge pb-6 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex-1">
@@ -144,12 +173,17 @@ export default function BracketBuilder({ userId, actual, initialBracket }: Props
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
+            readOnly={locked}
             className="w-full bg-transparent font-display text-3xl uppercase tracking-wider text-cream outline-none focus:text-pitch sm:text-4xl md:text-5xl"
             maxLength={60}
           />
         </div>
         <div className="flex items-center gap-3">
-          <SaveBadge status={saveStatus} />
+          {locked ? (
+            <span className="font-mono text-[10px] uppercase tracking-widest text-gold">🔒 Locked</span>
+          ) : (
+            <SaveBadge status={saveStatus} />
+          )}
           <ShareButton bracketId={initialBracket.id} />
         </div>
       </div>

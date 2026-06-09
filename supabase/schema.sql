@@ -130,3 +130,27 @@ drop trigger if exists set_results_updated_at on public.tournament_results;
 create trigger set_results_updated_at
   before update on public.tournament_results
   for each row execute function public.handle_updated_at();
+
+-- =============================================================================
+-- Picks lock — freeze all bracket edits once the tournament kicks off.
+-- `picks_lock_at` lives on the results row (null = open / no lock). When set,
+-- end users can no longer UPDATE their brackets after that time. The service
+-- role (scripts) is unaffected, so results entry still works.
+-- =============================================================================
+alter table public.tournament_results
+  add column if not exists picks_lock_at timestamptz;
+
+create or replace function public.picks_open()
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(
+    (select picks_lock_at from public.tournament_results where id = 'wc2026'),
+    'infinity'::timestamptz
+  ) > now();
+$$;
+
+-- Re-create the bracket UPDATE policy to also require picks to be open.
+drop policy if exists "Users can update their own brackets" on public.brackets;
+create policy "Users can update their own brackets"
+  on public.brackets for update
+  using (auth.uid() = user_id and public.picks_open())
+  with check (auth.uid() = user_id and public.picks_open());
